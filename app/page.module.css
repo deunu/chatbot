@@ -45,3 +45,18 @@
 .category:hover {
   background-color: #e3e3eb;
 }
+
+.inputContainer {
+  margin: 20px;
+  text-align: center;
+}
+
+.input {
+  padding: 10px;
+  width: 300px;
+  margin-right: 10px;
+}
+
+.button {
+  padding: 10px;
+}

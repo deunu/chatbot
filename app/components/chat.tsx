@@ -1,12 +1,13 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef,  useImperativeHandle, forwardRef } from "react";
 import styles from "./chat.module.css";
 import { AssistantStream } from "openai/lib/AssistantStream";
 import Markdown from "react-markdown";
 // @ts-expect-error - no types for this yet
 import { AssistantStreamEvent } from "openai/resources/beta/assistants/assistants";
 import { RequiredActionFunctionToolCall } from "openai/resources/beta/threads/runs/runs";
+import { send } from "process";
 
 type MessageProps = {
   role: "user" | "assistant" | "code";
@@ -51,51 +52,126 @@ const Message = ({ role, text }: MessageProps) => {
   }
 };
 
-type ChatProps = {
+// ADD ANOTHER ATTRIBUTE TO PROP, STARTING CHAT
+
+interface ChatProps {
   functionCallHandler?: (
     toolCall: RequiredActionFunctionToolCall
   ) => Promise<string>;
+  instructions?: string; // Optional property for instructions
+  welcomeMessage?: string; // Optional property for a welcome message
+
 };
 
-const Chat = ({
-  functionCallHandler = () => Promise.resolve(""), // default to return empty string
-}: ChatProps) => {
+// I want to use it in my parent component to send a message to the assistant
+
+const Chat = forwardRef(({
+  functionCallHandler = () => Promise.resolve(""), // default to return empty string,
+  instructions = "",
+  // Open sendMessage as a Function
+  welcomeMessage = "",
+}: ChatProps, ref) => {
   const [userInput, setUserInput] = useState("");
   const [messages, setMessages] = useState([]);
   const [inputDisabled, setInputDisabled] = useState(false);
   const [threadId, setThreadId] = useState("");
+  const [newInstructions, setNewInstructions] = useState("");
 
   // automatically scroll to bottom of chat
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
+
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
 
   // create a new threadID when chat component created
   useEffect(() => {
+
     const createThread = async () => {
+
       const res = await fetch(`/api/assistants/threads`, {
         method: "POST",
       });
+
       const data = await res.json();
       setThreadId(data.threadId);
     };
+    
     createThread();
+
   }, []);
 
+  // SEND A MESSAGE TO THE ASSISTANT AFTER THREAD IS CREATED USING USER EFFECT // NIRO
+  useEffect(() => {
+
+    // FROM PROPS
+    const message = welcomeMessage;
+
+    if (threadId){
+
+      sendMessage(message);
+      setMessages((prevMessages) => [
+        ...prevMessages,
+        { role: "user", text: message },
+      ]);
+      
+      setInputDisabled(true);
+      scrollToBottom();
+      
+    }
+    
+  }, [threadId]);
+
+  // USEEFFECT TO IDENTOFY IF ANYTHING RETURNED.
+
+  // useEffect(() => {
+    
+  //   if (newInstructions && inputDisabled == false) {
+
+  //     console.log("New Instructions: ", newInstructions);
+      
+  //     sendMessage(newInstructions, "system", newInstructions);
+  //     setNewInstructions("");
+
+  //   }
+
+  // }, [inputDisabled]);
+
+  // CREATE A NEW empty FUNCTION CALLED sendInstructions
+
+  const sendInstructions = (instructions: string) => {
+    console.log(" Set New Instructions: ", instructions);
+    
+    setNewInstructions(instructions);
+  }
+
+  useImperativeHandle(ref, () => ({
+    sendInstructions,
+  }));
+
   const sendMessage = async (text) => {
+
+    console.log("New Instructions: ", newInstructions);
+
     const response = await fetch(
       `/api/assistants/threads/${threadId}/messages`,
       {
         method: "POST",
         body: JSON.stringify({
           content: text,
+          additional_instructions: newInstructions,
         }),
       }
     );
+
+    if (newInstructions){
+      console.log("New Instructions Removed: ", newInstructions);
+      setNewInstructions("");
+    }
+
     const stream = AssistantStream.fromReadableStream(response.body);
     handleReadableStream(stream);
   };
@@ -116,19 +192,25 @@ const Chat = ({
     );
     const stream = AssistantStream.fromReadableStream(response.body);
     handleReadableStream(stream);
+
   };
 
   const handleSubmit = (e) => {
+
     e.preventDefault();
     if (!userInput.trim()) return;
+
     sendMessage(userInput);
+
     setMessages((prevMessages) => [
       ...prevMessages,
       { role: "user", text: userInput },
     ]);
+
     setUserInput("");
     setInputDisabled(true);
     scrollToBottom();
+
   };
 
   /* Stream Event Handlers */
@@ -203,8 +285,18 @@ const Chat = ({
     // events without helpers yet (e.g. requires_action and run.done)
     stream.on("event", (event) => {
       if (event.event === "thread.run.requires_action")
-        handleRequiresAction(event);
-      if (event.event === "thread.run.completed") handleRunCompleted();
+        { 
+          handleRequiresAction(event);
+
+          console.log("Event: ", "thread.run.requires_action");
+          
+        }
+      if (event.event === "thread.run.completed") 
+        { 
+
+          handleRunCompleted(); 
+
+        }
     });
   };
 
@@ -277,6 +369,6 @@ const Chat = ({
       </form>
     </div>
   );
-};
+});
 
 export default Chat;
